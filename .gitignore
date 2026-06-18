@@ -1,0 +1,68 @@
+# Godot-specific files
+.godot/
+.import/
+demo/.godot/
+demo/.import/
+*.log
+
+# Godot Editor executables / custom builds
+*.exe
+Godot_v*.exe
+
+# SCons and build cache files
+.sconsign.dblite
+.sconsign.tmp
+.sconf_temp/
+.scons_node_count
+
+# C++ Object files and libraries
+*.o
+*.os
+*.obj
+*.bc
+*.pyc
+
+# Dynamic and static library files
+*.so
+*.dll
+*.dylib
+*.a
+*.lib
+*.exp
+*.la
+*.lai
+*.lo
+~*.dll
+~*.so
+~*.dylib
+
+# Debug symbol files
+*.pdb
+*.ilk
+*.idb
+
+# IDE and workspace files
+.vs/
+.vscode/
+*.code-workspace
+.idea/
+cmake-build*/
+CMakeUserPresets.json
+.ccls-cache/
+compile_commands.json
+
+# OS-specific files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+
+# Python virtual environments (if any)
+.venv/
+venv/
+__pycache__/
+
+# Keep gdextension files in demo/bin
+!demo/bin/*.gdextension
+!demo/bin/*.gdextension.uid
