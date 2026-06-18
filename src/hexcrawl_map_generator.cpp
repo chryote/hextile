@@ -37,9 +37,17 @@ void HexcrawlMapGenerator::initialize(int p_width, int p_height, int p_seed) {
         cells[i].mountain_range_id = -1;
         cells[i].river_id = -1;
         cells[i].overlay = "none";
+
+        cells[i].holding_count = 0;
+        for (int h = 0; h < 5; ++h) {
+            cells[i].holding_ids[h] = -1;
+        }
     }
     plates.clear();
     regions.clear();
+    global_holdings.clear();
+    player_current_holding_id = -1;
+    player_current_room_id = -1;
 }
 
 std::vector<int> HexcrawlMapGenerator::get_neighbors_internal(int idx) const {
@@ -138,6 +146,9 @@ void HexcrawlMapGenerator::step_generation(int step_index) {
         case 7:
             step_assign_biomes();
             break;
+        case 8:
+            step_generate_holdings();
+            break;
         default:
             break;
     }
@@ -151,6 +162,7 @@ void HexcrawlMapGenerator::run_full_pipeline() {
     step_generate_rivers();
     step_simulate_climate();
     step_assign_biomes();
+    step_generate_holdings();
 }
 
 Dictionary HexcrawlMapGenerator::get_cell_data(int idx) const {
@@ -172,6 +184,13 @@ Dictionary HexcrawlMapGenerator::get_cell_data(int idx) const {
     data["river_next_idx"] = c.river_next_idx;
     data["is_river"] = c.is_river;
     data["overlay"] = c.overlay;
+
+    Array holding_ids_arr;
+    for (int h = 0; h < c.holding_count; ++h) {
+        holding_ids_arr.append(c.holding_ids[h]);
+    }
+    data["holding_ids"] = holding_ids_arr;
+    data["holding_count"] = c.holding_count;
     
     Vector2 pos = get_cell_position(idx);
     data["position"] = pos;
@@ -501,6 +520,7 @@ void HexcrawlMapGenerator::generate_debug_map() {
     }
 
     step_generate_region_names();
+    step_generate_holdings();
 }
 
 
@@ -510,6 +530,13 @@ void HexcrawlMapGenerator::_bind_methods() {
     ClassDB::bind_method(D_METHOD("run_full_pipeline"), &HexcrawlMapGenerator::run_full_pipeline);
     ClassDB::bind_method(D_METHOD("generate_debug_map"), &HexcrawlMapGenerator::generate_debug_map);
     ClassDB::bind_method(D_METHOD("step_generation", "step_index"), &HexcrawlMapGenerator::step_generation);
+    ClassDB::bind_method(D_METHOD("step_generate_holdings"), &HexcrawlMapGenerator::step_generate_holdings);
+    ClassDB::bind_method(D_METHOD("get_holding_data", "holding_id"), &HexcrawlMapGenerator::get_holding_data);
+    ClassDB::bind_method(D_METHOD("enter_holding", "holding_id"), &HexcrawlMapGenerator::enter_holding);
+    ClassDB::bind_method(D_METHOD("move_player_dir", "dir_val"), &HexcrawlMapGenerator::move_player_dir);
+    ClassDB::bind_method(D_METHOD("get_player_current_room_data"), &HexcrawlMapGenerator::get_player_current_room_data);
+    ClassDB::bind_method(D_METHOD("is_player_in_holding"), &HexcrawlMapGenerator::is_player_in_holding);
+    ClassDB::bind_method(D_METHOD("exit_holding"), &HexcrawlMapGenerator::exit_holding);
     ClassDB::bind_method(D_METHOD("get_plate_velocity", "plate_id"), &HexcrawlMapGenerator::get_plate_velocity);
 
     ClassDB::bind_method(D_METHOD("get_cell_count"), &HexcrawlMapGenerator::get_cell_count);

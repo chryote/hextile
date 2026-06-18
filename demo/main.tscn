@@ -92,8 +92,14 @@ custom_minimum_size = Vector2(0, 1)
 layout_mode = 2
 color = Color(0.3, 0.35, 0.45, 0.3)
 
-[node name="InspectorList" type="VBoxContainer" parent="UI/InspectorPanel/Margin/VBox"]
+[node name="Scroll" type="ScrollContainer" parent="UI/InspectorPanel/Margin/VBox"]
 layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="InspectorList" type="VBoxContainer" parent="UI/InspectorPanel/Margin/VBox/Scroll"]
+layout_mode = 2
+size_flags_horizontal = 3
 theme_override_constants/separation = 6
 
 [node name="ControlPanel" type="PanelContainer" parent="UI"]

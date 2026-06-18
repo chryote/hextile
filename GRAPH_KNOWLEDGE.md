@@ -14,7 +14,8 @@ world-sim/
 ├── GUARDRAIL.md                # Development rules, static initialization warnings, and compile tips
 ├── PROJECT_STYLE.md            # Code style guide, naming conventions, and file structure rules
 ├── GRAPH_KNOWLEDGE.md          # This file (architectural map, data structures, and pipeline flow)
-├── INSTRUCTION.txt             # Original specification for the procedural map generator pipeline
+├── HEXTILE.md                  # Comprehensive explanation of the hex grid geometry, structures, and pipeline math
+├── INSTRUCTION.md              # Original instructions/workflow guidelines
 │
 ├── src/                        # C++ GDExtension Simulation Backend
 │   ├── register_types.h/.cpp   # Entrypoint. Binds & registers class types with Godot Engine
@@ -27,7 +28,8 @@ world-sim/
 │   ├── map_gen_water.cpp       # Step 5: Moisture direction, flow accumulation, and river pathing
 │   ├── map_gen_climate.cpp     # Step 6: Latitude temperature calculation & wind moisture shadow
 │   ├── map_gen_biomes.cpp      # Step 7: Whittaker temperature/moisture classification for biomes
-│   └── map_gen_regions.cpp     # Step 8: Grouping tiles into labeled geopolitical/geological regions
+│   ├── map_gen_regions.cpp     # Step 8: Grouping tiles into labeled geopolitical/geological regions
+│   └── map_gen_holdings.cpp    # Step 9: Spawns CK2-style holdings and MUD room graphs
 │
 └── demo/                       # Godot Presentation Frontend
     ├── project.godot           # Godot project settings
@@ -102,6 +104,24 @@ The basic unit of the map grid.
 * **Hydrology Info**: `float water_accumulation` (river volume), `int river_next_idx` (downstream cell index), `bool is_river`.
 * **Geopolitical/Region IDs**: `landmass_id`, `biome_region_id`, `micro_region_id`, `mountain_range_id`, `river_id`.
 * **Overlays**: `String overlay` (e.g. `"none"`, `"ruins"`, `"castle"`).
+* **Holdings**: `holding_ids[5]` (global holding IDs), `holding_count` (number of local holdings).
+
+### D. `SubArea`
+A granular, text-RPG room within a holding.
+* `int local_id`: Local ID within the holding.
+* `std::string name`: Room presentation name.
+* `std::string description`: Text-RPG description string.
+* `uint64_t tags`: Bitmask simulation flags (e.g. `Raidable`, `Burnable`, `Lootable`, `Underground`).
+* `int exits[8]`: Direction links to other `local_id`s.
+
+### E. `Holding`
+A microscopic anchor on a hex cell representing a settlement or site.
+* `int id`: Global unique ID.
+* `int parent_hex_idx`: Reference to parent `HexCell`.
+* `HoldingType type`: Enum representing type (`Wilderness`, `Fortress`, `InlandSettlement`, etc.).
+* `std::string name`: Settlement name.
+* `uint64_t tags`: Bitmask simulation flags.
+* `std::vector<SubArea> sub_areas`: Room graph.
 
 ---
 
@@ -115,8 +135,12 @@ The C++ generator exposes properties and methods to Godot's `ClassDB`, making th
 * `step_generation(step_index)`: Run a specific step of the generator (0 to 7) for step-by-step rendering.
 * `get_neighbors(idx)`: Returns a `PackedInt32Array` of adjacent cell indices (1-hop neighbors).
 * `get_cell_position(idx)`: Calculates the 2D world-space coordinates of a hex cell.
-* `get_cell_data(idx)`: Returns a `Dictionary` of all properties of a specific cell (used in the UI Inspector).
+* `get_cell_data(idx)`: Returns a `Dictionary` of all properties of a specific cell (used in the UI Inspector, now includes holdings info).
 * `get_river_paths()`: Returns an array of polylines representing active river routes.
+* `get_holding_data(holding_id)`: Returns a `Dictionary` of holding configuration, tags, and MUD sub-areas.
+* `enter_holding(holding_id)` / `exit_holding()`: Sets or clears active player session.
+* `move_player_dir(dir_val)`: Moves player through room exits.
+* `get_player_current_room_data()`: Returns details of the player's current location.
 
 ### Bulk Data Getters (Optimized for Rendering)
 Instead of querying cells one-by-one, GDScript queries data in bulk:
@@ -151,6 +175,7 @@ sequenceDiagram
         Gen->>Gen: 6. step_simulate_climate() (Latitude temperature and wind shadow moisture)
         Gen->>Gen: 7. step_assign_biomes() (Whittaker temperature/moisture cell classification)
         Gen->>Gen: 8. step_generate_region_names() (Flood-fills land/water into named regions)
+        Gen->>Gen: 9. step_generate_holdings() (Spawns holdings and builds MUD room graphs)
     end
     
     Gen-->>GDScript: Pipeline Done
