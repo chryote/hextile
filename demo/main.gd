@@ -27,7 +27,7 @@ extends Control
 
 @onready var inspector_panel = $UI/InspectorPanel
 @onready var inspector_title = $UI/InspectorPanel/Margin/VBox/Title
-@onready var inspector_list = $UI/InspectorPanel/Margin/VBox/InspectorList
+@onready var inspector_list = $UI/InspectorPanel/Margin/VBox/Scroll/InspectorList
 
 # Map Generator instance
 var map_gen: RefCounted
@@ -137,6 +137,8 @@ func _unhandled_input(event):
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
 		var mouse_pos = map_container.get_local_mouse_position()
 		var clicked = _get_cell_at_position(mouse_pos)
+		if clicked != selected_cell_idx:
+			map_gen.exit_holding()
 		selected_cell_idx = clicked
 		_update_inspector()
 		map_renderer.queue_redraw()
@@ -147,6 +149,9 @@ func _reset_map():
 	current_step = 0
 	selected_cell_idx = -1
 	hovered_cell_idx = -1
+	
+	if map_gen != null:
+		map_gen.exit_holding()
 	
 	# Apply parameters to generator
 	map_gen.set_width(map_width)
@@ -169,7 +174,7 @@ func _reset_map():
 func _generate_full_map():
 	_reset_map()
 	map_gen.run_full_pipeline()
-	current_step = 7
+	current_step = 8
 	active_layer = "biomes"
 	
 	if layer_selector:
@@ -189,7 +194,7 @@ func _generate_debug_map():
 	map_gen.set_ocean_level(ocean_level)
 	map_gen.generate_debug_map()
 	
-	current_step = 7
+	current_step = 8
 	active_layer = "biomes"
 	
 	if layer_selector:
@@ -391,8 +396,13 @@ func _update_inspector():
 		inspector_list.remove_child(child)
 		child.queue_free()
 
-	var data = map_gen.get_cell_data(selected_cell_idx)
+	if map_gen.is_player_in_holding():
+		_render_mud_panel()
+	else:
+		var data = map_gen.get_cell_data(selected_cell_idx)
+		_render_hex_info_panel(data)
 
+func _render_hex_info_panel(data: Dictionary):
 	# Coordinate title
 	inspector_title.text = "Hex Info [ID: %d]" % data["index"]
 
@@ -445,6 +455,148 @@ func _update_inspector():
 			_add_info_label(inspector_list, "River System:", riv_name, Color("#3b82f6"))
 	else:
 		_add_info_label(inspector_list, "Biome:", "Uninitialized")
+
+	# Holdings list
+	if current_step >= 8:
+		if data.has("holding_ids") and data["holding_ids"].size() > 0:
+			var divider = ColorRect.new()
+			divider.custom_minimum_size = Vector2(0, 1)
+			divider.color = Color(0.3, 0.35, 0.45, 0.3)
+			inspector_list.add_child(divider)
+			
+			var h_label = Label.new()
+			h_label.text = "Local Holdings:"
+			h_label.add_theme_font_size_override("font_size", 12)
+			h_label.add_theme_color_override("font_color", Color("#cbd5e1"))
+			inspector_list.add_child(h_label)
+			
+			for holding_id in data["holding_ids"]:
+				var h_data = map_gen.get_holding_data(holding_id)
+				if h_data.is_empty():
+					continue
+				
+				var h_box = HBoxContainer.new()
+				inspector_list.add_child(h_box)
+				
+				var details_lbl = Label.new()
+				var tags_str = ""
+				if h_data["tags"].size() > 0:
+					tags_str = " [" + ", ".join(h_data["tags"]) + "]"
+				details_lbl.text = "• %s (%s)%s" % [h_data["name"], h_data["type"], tags_str]
+				details_lbl.add_theme_font_size_override("font_size", 11)
+				details_lbl.add_theme_color_override("font_color", Color("#38bdf8"))
+				details_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+				h_box.add_child(details_lbl)
+				
+				var enter_btn = Button.new()
+				enter_btn.text = "Enter"
+				enter_btn.add_theme_font_size_override("font_size", 10)
+				enter_btn.pressed.connect(func():
+					if map_gen.enter_holding(holding_id):
+						_update_inspector()
+				)
+				h_box.add_child(enter_btn)
+
+func _render_mud_panel():
+	var room = map_gen.get_player_current_room_data()
+	if not room.get("in_holding", false):
+		map_gen.exit_holding()
+		_update_inspector()
+		return
+
+	# Title
+	inspector_title.text = "Holding: %s" % room["holding_name"]
+
+	# Room Name
+	var room_name_lbl = Label.new()
+	room_name_lbl.text = room["room_name"]
+	room_name_lbl.add_theme_font_size_override("font_size", 13)
+	room_name_lbl.add_theme_color_override("font_color", Color("#fb923c"))
+	inspector_list.add_child(room_name_lbl)
+
+	# Room Tags
+	if room["room_tags"].size() > 0:
+		var tags_lbl = Label.new()
+		tags_lbl.text = "Tags: " + ", ".join(room["room_tags"])
+		tags_lbl.add_theme_font_size_override("font_size", 10)
+		tags_lbl.add_theme_color_override("font_color", Color("#34d399"))
+		inspector_list.add_child(tags_lbl)
+
+	# Divider
+	var div = ColorRect.new()
+	div.custom_minimum_size = Vector2(0, 1)
+	div.color = Color(0.3, 0.35, 0.45, 0.3)
+	inspector_list.add_child(div)
+
+	# Room Description
+	var desc_lbl = Label.new()
+	desc_lbl.text = room["room_description"]
+	desc_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	desc_lbl.add_theme_font_size_override("font_size", 11)
+	desc_lbl.add_theme_color_override("font_color", Color("#cbd5e1"))
+	inspector_list.add_child(desc_lbl)
+
+	# Exit info
+	var exits = room["exits"]
+	var valid_exits = []
+	for dir_name in exits.keys():
+		if exits[dir_name] != -1:
+			valid_exits.append(dir_name.capitalize())
+	
+	var exits_lbl = Label.new()
+	if valid_exits.size() > 0:
+		exits_lbl.text = "Obvious exits: " + ", ".join(valid_exits)
+	else:
+		exits_lbl.text = "Obvious exits: None"
+	exits_lbl.add_theme_font_size_override("font_size", 10)
+	exits_lbl.add_theme_color_override("font_color", Color("#94a3b8"))
+	inspector_list.add_child(exits_lbl)
+
+	# Traversal Buttons grid
+	var grid = GridContainer.new()
+	grid.columns = 3
+	grid.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	grid.add_theme_constant_override("h_separation", 6)
+	grid.add_theme_constant_override("v_separation", 6)
+	inspector_list.add_child(grid)
+
+	var buttons_layout = [
+		{"label": "Up", "dir": 4},   {"label": "North", "dir": 0}, {"label": "In", "dir": 6},
+		{"label": "West", "dir": 3}, {"label": "", "dir": -1},    {"label": "East", "dir": 2},
+		{"label": "Down", "dir": 5}, {"label": "South", "dir": 1}, {"label": "Out", "dir": 7}
+	]
+
+	for btn_info in buttons_layout:
+		if btn_info["label"] == "":
+			var spacer = Control.new()
+			grid.add_child(spacer)
+			continue
+
+		var btn = Button.new()
+		btn.text = btn_info["label"]
+		btn.custom_minimum_size = Vector2(64, 26)
+		btn.add_theme_font_size_override("font_size", 9)
+		
+		var dir_enum_name = btn_info["label"].to_lower()
+		var next_room_idx = exits.get(dir_enum_name, -1)
+		if next_room_idx == -1:
+			btn.disabled = true
+		else:
+			btn.pressed.connect(func():
+				if map_gen.move_player_dir(btn_info["dir"]):
+					_update_inspector()
+			)
+		grid.add_child(btn)
+
+	# Exit button
+	var exit_btn = Button.new()
+	exit_btn.text = "Return to Map"
+	exit_btn.add_theme_font_size_override("font_size", 10)
+	exit_btn.pressed.connect(func():
+		map_gen.exit_holding()
+		_update_inspector()
+	)
+	inspector_list.add_child(exit_btn)
 
 func _add_info_label(parent: Control, label_text: String, value_text: String, value_color = Color("#f8fafc")):
 	var hbox = HBoxContainer.new()

@@ -13,6 +13,7 @@
 #include "hextile_framework.h"
 #include <vector>
 #include <random>
+#include <unordered_map>
 
 using namespace godot;
 
@@ -58,6 +59,10 @@ private:
     std::vector<Region> regions;
     std::mt19937 rng;
 
+    std::unordered_map<int, Holding> global_holdings;
+    int player_current_holding_id = -1;
+    int player_current_room_id = -1;
+
     void compute_overlays();
 
 protected:
@@ -81,6 +86,16 @@ public:
     void step_simulate_climate();
     void step_assign_biomes();
     void step_generate_region_names();
+    void step_generate_holdings();
+    void build_mud_rooms_for_holding(Holding& holding, const HexCell& cell);
+
+    // Traversal & query helpers
+    Dictionary get_holding_data(int holding_id) const;
+    bool enter_holding(int holding_id);
+    bool move_player_dir(int dir_val);
+    Dictionary get_player_current_room_data() const;
+    bool is_player_in_holding() const;
+    void exit_holding();
 
     // Math/Grid helpers exposed to GDScript
     std::vector<int> get_neighbors_internal(int idx) const;
