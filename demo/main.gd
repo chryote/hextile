@@ -475,18 +475,35 @@ func _render_hex_info_panel(data: Dictionary):
 				if h_data.is_empty():
 					continue
 				
-				var h_box = HBoxContainer.new()
-				inspector_list.add_child(h_box)
+				# Container for this holding item (header + collapsible area)
+				var h_item_container = VBoxContainer.new()
+				inspector_list.add_child(h_item_container)
+				
+				var h_header_box = HBoxContainer.new()
+				h_header_box.add_theme_constant_override("separation", 4)
+				h_item_container.add_child(h_header_box)
+				
+				# Collapsible Toggle Button
+				var toggle_btn = Button.new()
+				toggle_btn.text = "▶"
+				toggle_btn.flat = true
+				toggle_btn.add_theme_font_size_override("font_size", 9)
+				toggle_btn.custom_minimum_size = Vector2(16, 16)
+				toggle_btn.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+				
+				var has_tags = h_data["tags"].size() > 0
+				if not has_tags:
+					toggle_btn.disabled = true
+					toggle_btn.text = "•"
+				
+				h_header_box.add_child(toggle_btn)
 				
 				var details_lbl = Label.new()
-				var tags_str = ""
-				if h_data["tags"].size() > 0:
-					tags_str = " [" + ", ".join(h_data["tags"]) + "]"
-				details_lbl.text = "• %s (%s)%s" % [h_data["name"], h_data["type"], tags_str]
+				details_lbl.text = "%s (%s)" % [h_data["name"], h_data["type"]]
 				details_lbl.add_theme_font_size_override("font_size", 11)
 				details_lbl.add_theme_color_override("font_color", Color("#38bdf8"))
 				details_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-				h_box.add_child(details_lbl)
+				h_header_box.add_child(details_lbl)
 				
 				var enter_btn = Button.new()
 				enter_btn.text = "Enter"
@@ -495,7 +512,26 @@ func _render_hex_info_panel(data: Dictionary):
 					if map_gen.enter_holding(holding_id):
 						_update_inspector()
 				)
-				h_box.add_child(enter_btn)
+				h_header_box.add_child(enter_btn)
+				
+				# Collapsible tags box
+				if has_tags:
+					var tags_container = MarginContainer.new()
+					tags_container.add_theme_constant_override("margin_left", 20)
+					tags_container.visible = false
+					h_item_container.add_child(tags_container)
+					
+					var tags_lbl = Label.new()
+					tags_lbl.text = "Tags: " + ", ".join(h_data["tags"])
+					tags_lbl.add_theme_font_size_override("font_size", 10)
+					tags_lbl.add_theme_color_override("font_color", Color("#34d399"))
+					tags_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+					tags_container.add_child(tags_lbl)
+					
+					toggle_btn.pressed.connect(func():
+						tags_container.visible = not tags_container.visible
+						toggle_btn.text = "▼" if tags_container.visible else "▶"
+					)
 
 func _render_mud_panel():
 	var room = map_gen.get_player_current_room_data()
@@ -667,3 +703,4 @@ func _add_legend_item(parent: Control, text_label: String, color: Color):
 	label.add_theme_font_size_override("font_size", 10)
 	label.add_theme_color_override("font_color", Color("#cbd5e1"))
 	hbox.add_child(label)
+

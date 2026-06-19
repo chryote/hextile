@@ -53,6 +53,7 @@ void HexcrawlMapGenerator::step_generate_holdings() {
         new_holding.id = global_holding_counter++;
         new_holding.parent_hex_idx = cell.index;
         new_holding.type = HoldingType::Wilderness;
+        new_holding.tags = Tags::Campable | Tags::Explorable | Tags::Forageable;
         
         std::string adj = adjectives[step_rng() % adjectives.size()];
         std::string noun = nouns[step_rng() % nouns.size()];
@@ -247,6 +248,10 @@ void HexcrawlMapGenerator::build_mud_rooms_for_holding(Holding& holding, const H
             holding.sub_areas.push_back(summit);
         }
         holding.entry_sub_area_idx = 0;
+
+        for (auto& room : holding.sub_areas) {
+            room.tags |= Tags::Campable | Tags::Forageable;
+        }
     }
 }
 
@@ -282,6 +287,9 @@ Dictionary HexcrawlMapGenerator::get_holding_data(int holding_id) const {
     if (has_tag(holding.tags, Tags::Lootable)) tags_arr.append("Lootable");
     if (has_tag(holding.tags, Tags::Inhabited)) tags_arr.append("Inhabited");
     if (has_tag(holding.tags, Tags::Underground)) tags_arr.append("Underground");
+    if (has_tag(holding.tags, Tags::Campable)) tags_arr.append("Campable");
+    if (has_tag(holding.tags, Tags::Explorable)) tags_arr.append("Explorable");
+    if (has_tag(holding.tags, Tags::Forageable)) tags_arr.append("Forageable");
     data["tags"] = tags_arr;
 
     Array sub_areas_arr;
@@ -298,6 +306,9 @@ Dictionary HexcrawlMapGenerator::get_holding_data(int holding_id) const {
         if (has_tag(room.tags, Tags::Lootable)) r_tags.append("Lootable");
         if (has_tag(room.tags, Tags::Inhabited)) r_tags.append("Inhabited");
         if (has_tag(room.tags, Tags::Underground)) r_tags.append("Underground");
+        if (has_tag(room.tags, Tags::Campable)) r_tags.append("Campable");
+        if (has_tag(room.tags, Tags::Explorable)) r_tags.append("Explorable");
+        if (has_tag(room.tags, Tags::Forageable)) r_tags.append("Forageable");
         r_data["tags"] = r_tags;
 
         Dictionary exits_dict;
@@ -376,6 +387,9 @@ Dictionary HexcrawlMapGenerator::get_player_current_room_data() const {
     if (has_tag(room.tags, Tags::Lootable)) r_tags.append("Lootable");
     if (has_tag(room.tags, Tags::Inhabited)) r_tags.append("Inhabited");
     if (has_tag(room.tags, Tags::Underground)) r_tags.append("Underground");
+    if (has_tag(room.tags, Tags::Campable)) r_tags.append("Campable");
+    if (has_tag(room.tags, Tags::Explorable)) r_tags.append("Explorable");
+    if (has_tag(room.tags, Tags::Forageable)) r_tags.append("Forageable");
     data["room_tags"] = r_tags;
 
     Dictionary exits_dict;
