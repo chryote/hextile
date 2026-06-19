@@ -111,7 +111,7 @@ A granular, text-RPG room within a holding.
 * `int local_id`: Local ID within the holding.
 * `std::string name`: Room presentation name.
 * `std::string description`: Text-RPG description string.
-* `uint64_t tags`: Bitmask simulation flags (e.g. `Raidable`, `Burnable`, `Lootable`, `Underground`).
+* `uint64_t tags`: Bitmask simulation flags (e.g. `Raidable`, `Burnable`, `Lootable`, `Underground`, `Campable`, `Explorable`, `Forageable`).
 * `int exits[8]`: Direction links to other `local_id`s.
 
 ### E. `Holding`
@@ -120,7 +120,7 @@ A microscopic anchor on a hex cell representing a settlement or site.
 * `int parent_hex_idx`: Reference to parent `HexCell`.
 * `HoldingType type`: Enum representing type (`Wilderness`, `Fortress`, `InlandSettlement`, etc.).
 * `std::string name`: Settlement name.
-* `uint64_t tags`: Bitmask simulation flags.
+* `uint64_t tags`: Bitmask simulation flags (e.g. `Campable`, `Explorable`, `Forageable`).
 * `std::vector<SubArea> sub_areas`: Room graph.
 
 ---

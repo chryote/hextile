@@ -18,7 +18,10 @@ namespace Tags {
         Sanctuary   = 1 << 2,
         Lootable    = 1 << 3,
         Inhabited   = 1 << 4,
-        Underground = 1 << 5
+        Underground = 1 << 5,
+        Campable    = 1 << 6,
+        Explorable  = 1 << 7,
+        Forageable  = 1 << 8
     };
 }
 
