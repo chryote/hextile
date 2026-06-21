@@ -6,6 +6,7 @@
 #include <vector>
 #include <string>
 #include <cstdint>
+#include "interactable_system.h"
 
 using namespace godot;
 
@@ -47,6 +48,7 @@ struct SubArea {
     
     std::vector<int> actor_ids;  // NPCs or Enemies currently inside
     std::vector<int> item_ids;   // Loot containers or objects dropped
+    std::vector<ActiveObjectInstance> interactables; // Active interactable objects in this room
 };
 
 // CK2-Style Holding Area Type
@@ -104,6 +106,8 @@ struct HexCell {
     // Holdings Integration
     int holding_ids[5] = { -1, -1, -1, -1, -1 };
     uint8_t holding_count = 0;
+
+    std::vector<ActiveObjectInstance> interactables;
 };
 
 #endif // HEXTILE_FRAMEWORK_H

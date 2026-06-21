@@ -94,5 +94,26 @@ void HexcrawlMapGenerator::step_assign_biomes() {
         }
     }
 
+    // Populate cell interactables based on biome pools
+    for (auto& cell : cells) {
+        cell.interactables.clear();
+        if (cell.elevation >= ocean_level) {
+            std::vector<std::string> pool = get_filtered_templates_for_cell(cell);
+            if (!pool.empty()) {
+                std::mt19937 cell_rng(seed + cell.index * 73);
+                int count = (cell_rng() % 2) + 1; // 1 or 2
+                std::vector<std::string> pool_copy = pool;
+                std::shuffle(pool_copy.begin(), pool_copy.end(), cell_rng);
+                
+                int actual_count = std::min(count, (int)pool_copy.size());
+                for (int j = 0; j < actual_count; ++j) {
+                    ActiveObjectInstance inst;
+                    inst.template_id = pool_copy[j];
+                    cell.interactables.push_back(inst);
+                }
+            }
+        }
+    }
+
     step_generate_region_names();
 }

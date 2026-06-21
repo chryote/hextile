@@ -48,6 +48,7 @@ void HexcrawlMapGenerator::initialize(int p_width, int p_height, int p_seed) {
     global_holdings.clear();
     player_current_holding_id = -1;
     player_current_room_id = -1;
+    object_manager.initialize_dictionaries();
 }
 
 std::vector<int> HexcrawlMapGenerator::get_neighbors_internal(int idx) const {
@@ -224,6 +225,61 @@ Dictionary HexcrawlMapGenerator::get_cell_data(int idx) const {
         river_name = regions[c.river_id].name;
     }
     data["river_name"] = river_name;
+
+    Array interactables_arr;
+    for (const auto& obj : c.interactables) {
+        Dictionary obj_dict;
+        obj_dict["template_id"] = String(obj.template_id.c_str());
+        
+        const AdvancedInteractableTemplate* tmpl = object_manager.get_template(obj.template_id);
+        if (tmpl) {
+            obj_dict["name"] = String(tmpl->name.c_str());
+            
+            std::string dynamic_desc = tmpl->get_description(obj.runtime_tag_states);
+            obj_dict["description"] = String(dynamic_desc.c_str());
+            
+            std::vector<String> actions_list;
+            bool all_none = true;
+            for (const auto& pair : tmpl->features) {
+                const auto& feature = pair.second;
+                InteractionTag current_tag = feature.active_tag;
+                auto it = obj.runtime_tag_states.find(feature.keyword);
+                if (it != obj.runtime_tag_states.end()) {
+                    current_tag = it->second;
+                }
+                
+                if (current_tag != InteractionTag::None) {
+                    all_none = false;
+                    String action_name = "unknown";
+                    switch (current_tag) {
+                        case InteractionTag::Choppable: action_name = "chop"; break;
+                        case InteractionTag::Burnable: action_name = "burn"; break;
+                        case InteractionTag::Forageable: action_name = "forage"; break;
+                        case InteractionTag::Scrapeable: action_name = "scrape"; break;
+                        case InteractionTag::Clearable: action_name = "clear"; break;
+                        case InteractionTag::Searchable: action_name = "search"; break;
+                        default: break;
+                    }
+                    if (std::find(actions_list.begin(), actions_list.end(), action_name) == actions_list.end()) {
+                        actions_list.push_back(action_name);
+                    }
+                }
+            }
+            Array actions;
+            for (const auto& act : actions_list) {
+                actions.append(act);
+            }
+            obj_dict["is_depleted"] = all_none;
+            obj_dict["allowed_actions"] = actions;
+        } else {
+            obj_dict["name"] = String("Unknown");
+            obj_dict["description"] = String("");
+            obj_dict["is_depleted"] = true;
+            obj_dict["allowed_actions"] = Array();
+        }
+        interactables_arr.append(obj_dict);
+    }
+    data["interactables"] = interactables_arr;
 
     return data;
 }
@@ -525,6 +581,38 @@ void HexcrawlMapGenerator::generate_debug_map() {
 
 
 
+std::vector<std::string> HexcrawlMapGenerator::get_filtered_templates_for_cell(const HexCell& cell) {
+    std::vector<std::string> base_pool = object_manager.get_pool_for_biome(cell.biome);
+    std::vector<std::string> filtered_pool;
+    
+    for (const auto& temp_id : base_pool) {
+        if (temp_id == "frozen_shrub" && cell.temperature >= 0.35f) {
+            continue;
+        }
+        if (temp_id == "dry_brush" && cell.moisture >= 0.45f) {
+            continue;
+        }
+        if (temp_id == "driftwood" && cell.biome != 1 && cell.biome != 15 && cell.moisture < 0.3f) {
+            continue;
+        }
+        
+        if (cell.biome_region_id != -1) {
+            if (temp_id == "ancient_obelisk" && (cell.biome_region_id % 2 == 0)) {
+                continue;
+            }
+        }
+        
+        filtered_pool.push_back(temp_id);
+    }
+    
+    if (filtered_pool.empty()) {
+        filtered_pool = base_pool;
+    }
+    return filtered_pool;
+}
+
+
+
 void HexcrawlMapGenerator::_bind_methods() {
     ClassDB::bind_method(D_METHOD("initialize", "width", "height", "seed"), &HexcrawlMapGenerator::initialize);
     ClassDB::bind_method(D_METHOD("run_full_pipeline"), &HexcrawlMapGenerator::run_full_pipeline);
@@ -537,6 +625,8 @@ void HexcrawlMapGenerator::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_player_current_room_data"), &HexcrawlMapGenerator::get_player_current_room_data);
     ClassDB::bind_method(D_METHOD("is_player_in_holding"), &HexcrawlMapGenerator::is_player_in_holding);
     ClassDB::bind_method(D_METHOD("exit_holding"), &HexcrawlMapGenerator::exit_holding);
+    ClassDB::bind_method(D_METHOD("interact_in_room", "command"), &HexcrawlMapGenerator::interact_in_room);
+    ClassDB::bind_method(D_METHOD("interact_on_cell", "cell_idx", "command"), &HexcrawlMapGenerator::interact_on_cell);
     ClassDB::bind_method(D_METHOD("get_plate_velocity", "plate_id"), &HexcrawlMapGenerator::get_plate_velocity);
 
     ClassDB::bind_method(D_METHOD("get_cell_count"), &HexcrawlMapGenerator::get_cell_count);

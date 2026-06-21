@@ -63,7 +63,11 @@ private:
     int player_current_holding_id = -1;
     int player_current_room_id = -1;
 
+    ObjectDictionaryManager object_manager;
+
     void compute_overlays();
+    String execute_interaction_on_list(std::vector<ActiveObjectInstance>& interactables, const String& command);
+    std::vector<std::string> get_filtered_templates_for_cell(const HexCell& cell);
 
 protected:
     static void _bind_methods();
@@ -96,6 +100,8 @@ public:
     Dictionary get_player_current_room_data() const;
     bool is_player_in_holding() const;
     void exit_holding();
+    String interact_in_room(const String& command);
+    String interact_on_cell(int cell_idx, const String& command);
 
     // Math/Grid helpers exposed to GDScript
     std::vector<int> get_neighbors_internal(int idx) const;
