@@ -58,6 +58,11 @@ var hex_size = 22.0
 var spacing_scale = hex_size * sqrt(3)
 var is_debug_map = false
 
+var interaction_input_container: VBoxContainer
+var interaction_line_edit: LineEdit
+var interaction_send_btn: Button
+var last_interaction_result: String = ""
+
 # Biome names and colors
 var biome_names = {
 	0: "Deep Ocean",
@@ -139,6 +144,7 @@ func _unhandled_input(event):
 		var clicked = _get_cell_at_position(mouse_pos)
 		if clicked != selected_cell_idx:
 			map_gen.exit_holding()
+			last_interaction_result = ""
 		selected_cell_idx = clicked
 		_update_inspector()
 		map_renderer.queue_redraw()
@@ -230,6 +236,7 @@ func _setup_ui():
 	collapse_button.pressed.connect(func():
 		content_vbox.visible = !content_vbox.visible
 		collapse_button.text = "—" if content_vbox.visible else "+"
+		control_panel.size.y = 0
 	)
 
 	# Action Button logic
@@ -287,6 +294,42 @@ func _setup_ui():
 	_add_slider(scroll_vbox, "Erosion Drops", 0, 120000, erosion_iterations, func(v): erosion_iterations = int(v), 0, 5000)
 	_add_slider(scroll_vbox, "Erosion Rate", 0.01, 0.15, erosion_rate, func(v): erosion_rate = v, 2)
 	_add_slider(scroll_vbox, "Wind Angle", 0, 360, wind_angle_deg, func(v): wind_angle_deg = v, 0)
+
+	# Setup MUD Interaction Command Line programmatically
+	var mud_vbox = inspector_panel.get_node("Margin/VBox")
+	
+	interaction_input_container = VBoxContainer.new()
+	interaction_input_container.add_theme_constant_override("separation", 4)
+	interaction_input_container.visible = false
+	mud_vbox.add_child(interaction_input_container)
+	
+	var input_hbox = HBoxContainer.new()
+	input_hbox.add_theme_constant_override("separation", 6)
+	interaction_input_container.add_child(input_hbox)
+	
+	interaction_line_edit = LineEdit.new()
+	interaction_line_edit.placeholder_text = "Type command (e.g. chop briar patch with axe)"
+	interaction_line_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	interaction_line_edit.add_theme_font_size_override("font_size", 10)
+	input_hbox.add_child(interaction_line_edit)
+	
+	interaction_send_btn = Button.new()
+	interaction_send_btn.text = "Send"
+	interaction_send_btn.add_theme_font_size_override("font_size", 10)
+	input_hbox.add_child(interaction_send_btn)
+	
+	var submit_cmd = func():
+		var cmd = interaction_line_edit.text.strip_edges()
+		if cmd != "":
+			if map_gen.is_player_in_holding():
+				last_interaction_result = map_gen.interact_in_room(cmd)
+			else:
+				last_interaction_result = map_gen.interact_on_cell(selected_cell_idx, cmd)
+			interaction_line_edit.text = ""
+			_update_inspector()
+	
+	interaction_line_edit.text_submitted.connect(func(_new_text): submit_cmd.call())
+	interaction_send_btn.pressed.connect(submit_cmd)
 
 	inspector_panel.visible = false
 
@@ -387,6 +430,8 @@ func _get_cell_at_position(pos: Vector2) -> int:
 func _update_inspector():
 	if selected_cell_idx == -1 or map_gen == null or map_gen.get_cell_count() == 0:
 		inspector_panel.visible = false
+		if interaction_input_container:
+			interaction_input_container.visible = false
 		return
 
 	inspector_panel.visible = true
@@ -397,9 +442,14 @@ func _update_inspector():
 		child.queue_free()
 
 	if map_gen.is_player_in_holding():
+		if interaction_input_container:
+			interaction_input_container.visible = true
 		_render_mud_panel()
 	else:
 		var data = map_gen.get_cell_data(selected_cell_idx)
+		if interaction_input_container:
+			var is_land = data.get("elevation", 0.0) >= ocean_level
+			interaction_input_container.visible = is_land
 		_render_hex_info_panel(data)
 
 func _render_hex_info_panel(data: Dictionary):
@@ -533,10 +583,82 @@ func _render_hex_info_panel(data: Dictionary):
 						toggle_btn.text = "▼" if tags_container.visible else "▶"
 					)
 
+	# Last action log
+	if last_interaction_result != "":
+		var divider_log = ColorRect.new()
+		divider_log.custom_minimum_size = Vector2(0, 1)
+		divider_log.color = Color(0.3, 0.35, 0.45, 0.3)
+		inspector_list.add_child(divider_log)
+		
+		var log_lbl = Label.new()
+		log_lbl.text = "> " + last_interaction_result
+		log_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		log_lbl.add_theme_font_size_override("font_size", 11)
+		
+		if "successfully" in last_interaction_result:
+			log_lbl.add_theme_color_override("font_color", Color("#4ade80")) # bright green
+		else:
+			log_lbl.add_theme_color_override("font_color", Color("#f87171")) # soft red
+		inspector_list.add_child(log_lbl)
+
+	# Divider for interactables
+	var divider_int = ColorRect.new()
+	divider_int.custom_minimum_size = Vector2(0, 1)
+	divider_int.color = Color(0.3, 0.35, 0.45, 0.3)
+	inspector_list.add_child(divider_int)
+
+	# Interactables header
+	var int_header = Label.new()
+	int_header.text = "Hex Interactables:"
+	int_header.add_theme_font_size_override("font_size", 11)
+	int_header.add_theme_color_override("font_color", Color("#e2e8f0"))
+	inspector_list.add_child(int_header)
+
+	var interactables = data.get("interactables", [])
+	if interactables.size() > 0:
+		for obj in interactables:
+			var obj_box = HBoxContainer.new()
+			inspector_list.add_child(obj_box)
+
+			var status_lbl = Label.new()
+			if obj["is_depleted"]:
+				status_lbl.text = "[Depleted] "
+				status_lbl.add_theme_color_override("font_color", Color("#64748b"))
+			else:
+				status_lbl.text = "[Active] "
+				status_lbl.add_theme_color_override("font_color", Color("#34d399"))
+			status_lbl.add_theme_font_size_override("font_size", 10)
+			obj_box.add_child(status_lbl)
+
+			var name_lbl = Label.new()
+			name_lbl.text = obj["name"]
+			name_lbl.add_theme_font_size_override("font_size", 10)
+			name_lbl.add_theme_color_override("font_color", Color("#e2e8f0") if not obj["is_depleted"] else Color("#64748b"))
+			obj_box.add_child(name_lbl)
+
+			var action_lbl = Label.new()
+			if not obj["is_depleted"]:
+				action_lbl.text = " (Verbs: " + ", ".join(obj["allowed_actions"]) + ")"
+				action_lbl.add_theme_color_override("font_color", Color("#a7f3d0"))
+			else:
+				action_lbl.text = " (Depleted)"
+				action_lbl.add_theme_color_override("font_color", Color("#475569"))
+			action_lbl.add_theme_font_size_override("font_size", 9)
+			obj_box.add_child(action_lbl)
+
+			name_lbl.tooltip_text = obj["description"]
+	else:
+		var no_obj = Label.new()
+		no_obj.text = "  No objects of interest on this tile."
+		no_obj.add_theme_font_size_override("font_size", 9)
+		no_obj.add_theme_color_override("font_color", Color("#64748b"))
+		inspector_list.add_child(no_obj)
+
 func _render_mud_panel():
 	var room = map_gen.get_player_current_room_data()
 	if not room.get("in_holding", false):
 		map_gen.exit_holding()
+		last_interaction_result = ""
 		_update_inspector()
 		return
 
@@ -571,6 +693,80 @@ func _render_mud_panel():
 	desc_lbl.add_theme_font_size_override("font_size", 11)
 	desc_lbl.add_theme_color_override("font_color", Color("#cbd5e1"))
 	inspector_list.add_child(desc_lbl)
+
+	# Last action log
+	if last_interaction_result != "":
+		var log_lbl = Label.new()
+		log_lbl.text = "> " + last_interaction_result
+		log_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		log_lbl.add_theme_font_size_override("font_size", 11)
+		
+		# Color based on whether success or error
+		if "successfully" in last_interaction_result:
+			log_lbl.add_theme_color_override("font_color", Color("#4ade80")) # bright green
+		else:
+			log_lbl.add_theme_color_override("font_color", Color("#f87171")) # soft red
+		inspector_list.add_child(log_lbl)
+
+	# Divider for interactables
+	var div_int = ColorRect.new()
+	div_int.custom_minimum_size = Vector2(0, 1)
+	div_int.color = Color(0.3, 0.35, 0.45, 0.3)
+	inspector_list.add_child(div_int)
+
+	# Interactables header
+	var int_header = Label.new()
+	int_header.text = "Interactables:"
+	int_header.add_theme_font_size_override("font_size", 11)
+	int_header.add_theme_color_override("font_color", Color("#e2e8f0"))
+	inspector_list.add_child(int_header)
+
+	var interactables = room.get("interactables", [])
+	if interactables.size() > 0:
+		for obj in interactables:
+			var obj_box = HBoxContainer.new()
+			inspector_list.add_child(obj_box)
+
+			var status_lbl = Label.new()
+			if obj["is_depleted"]:
+				status_lbl.text = "[Depleted] "
+				status_lbl.add_theme_color_override("font_color", Color("#64748b"))
+			else:
+				status_lbl.text = "[Active] "
+				status_lbl.add_theme_color_override("font_color", Color("#34d399"))
+			status_lbl.add_theme_font_size_override("font_size", 10)
+			obj_box.add_child(status_lbl)
+
+			var name_lbl = Label.new()
+			name_lbl.text = obj["name"]
+			name_lbl.add_theme_font_size_override("font_size", 10)
+			name_lbl.add_theme_color_override("font_color", Color("#e2e8f0") if not obj["is_depleted"] else Color("#64748b"))
+			obj_box.add_child(name_lbl)
+
+			var action_lbl = Label.new()
+			if not obj["is_depleted"]:
+				action_lbl.text = " (Verbs: " + ", ".join(obj["allowed_actions"]) + ")"
+				action_lbl.add_theme_color_override("font_color", Color("#a7f3d0"))
+			else:
+				action_lbl.text = " (Depleted)"
+				action_lbl.add_theme_color_override("font_color", Color("#475569"))
+			action_lbl.add_theme_font_size_override("font_size", 9)
+			obj_box.add_child(action_lbl)
+
+			# Show description on hover or tooltip
+			name_lbl.tooltip_text = obj["description"]
+	else:
+		var no_obj = Label.new()
+		no_obj.text = "  No objects of interest here."
+		no_obj.add_theme_font_size_override("font_size", 9)
+		no_obj.add_theme_color_override("font_color", Color("#64748b"))
+		inspector_list.add_child(no_obj)
+
+	# Divider before exit info
+	var div_exits = ColorRect.new()
+	div_exits.custom_minimum_size = Vector2(0, 1)
+	div_exits.color = Color(0.3, 0.35, 0.45, 0.3)
+	inspector_list.add_child(div_exits)
 
 	# Exit info
 	var exits = room["exits"]
@@ -620,6 +816,7 @@ func _render_mud_panel():
 		else:
 			btn.pressed.connect(func():
 				if map_gen.move_player_dir(btn_info["dir"]):
+					last_interaction_result = ""
 					_update_inspector()
 			)
 		grid.add_child(btn)
@@ -630,6 +827,7 @@ func _render_mud_panel():
 	exit_btn.add_theme_font_size_override("font_size", 10)
 	exit_btn.pressed.connect(func():
 		map_gen.exit_holding()
+		last_interaction_result = ""
 		_update_inspector()
 	)
 	inspector_list.add_child(exit_btn)

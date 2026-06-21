@@ -72,7 +72,7 @@ Because of the offset layout, finding adjacent neighbors depends on whether the 
 
 ## 2. Core Data Structures ([hextile_framework.h](file:///d:/world-sim/src/hextile_framework.h))
 
-The state of the map is stored in flat vectors of C++ structures. The main structures are [HexCell](file:///d:/world-sim/src/hextile_framework.h#L23), [Plate](file:///d:/world-sim/src/hextile_framework.h#L10), and [Region](file:///d:/world-sim/src/hextile_framework.h#L15).
+The state of the map is stored in flat vectors of C++ structures. The main structures are [HexCell](file:///d:/world-sim/src/hextile_framework.h#L23), [Plate](file:///d:/world-sim/src/hextile_framework.h#L10), [Region](file:///d:/world-sim/src/hextile_framework.h#L15), `Holding`, and `SubArea`.
 
 ### A. [HexCell](file:///d:/world-sim/src/hextile_framework.h#L23)
 The fundamental unit of the map. It holds physical, geological, climatological, and administrative attributes.
@@ -96,6 +96,8 @@ The fundamental unit of the map. It holds physical, geological, climatological, 
 | `mountain_range_id` | `int` | Region ID of the mountain range this cell belongs to. |
 | `river_id` | `int` | Region ID of the river system traversing this cell. |
 | `overlay` | `String` | Visual symbol overlays (`"none"`, `"hill"`, `"low_mountain"`, `"high_mountain"`). |
+| `holding_ids` | `int[5]` | Array of global unique IDs of holdings residing in this cell (unused slots are $-1$). |
+| `holding_count` | `uint8_t` | The number of active holdings inside this cell. |
 
 ### B. [Plate](file:///d:/world-sim/src/hextile_framework.h#L10)
 Represents a tectonic plate that moves across the map.
@@ -116,11 +118,35 @@ Represents a clustered, contiguous group of cells forming a geographic feature.
 | `cell_indices` | `std::vector<int>` | List of indices of `HexCell`s belonging to this region. |
 | `center_position` | `Vector2` | Center-of-mass coordinate calculated as the average coordinate of all member cells. |
 
+### D. Holding
+Represents a macroscopic settlement or location anchor on a hex cell.
+
+| Field Name | Type | Description |
+| :--- | :--- | :--- |
+| `id` | `int` | Global unique ID of the holding. |
+| `parent_hex_idx` | `int` | Index of the parent `HexCell` where this holding is built. |
+| `type` | `HoldingType` | Type of holding (`Wilderness`, `Ruins`, `Camp`, `Outpost`, `InlandSettlement`, `HarborSettlement`, `Fortress`, `MerchantEnclave`, `Shrine`). |
+| `name` | `std::string` | Name of the settlement or holding. |
+| `tags` | `uint64_t` | Simulation status bitmask flags (`Raidable`, `Burnable`, `Sanctuary`, `Lootable`, `Inhabited`, `Underground`, `Campable`, `Explorable`, `Forageable`). |
+| `sub_areas` | `std::vector<SubArea>` | The rooms or areas that form this holding's layout. |
+| `entry_sub_area_idx` | `int` | Local index of the entry room when a player moves into this holding (default $0$). |
+
+### E. SubArea
+Represents a microscopic text-RPG room within a holding.
+
+| Field Name | Type | Description |
+| :--- | :--- | :--- |
+| `local_id` | `int` | Local ID/index of the room within the holding. |
+| `name` | `std::string` | Name of the room/area. |
+| `description` | `std::string` | Text-RPG description string. |
+| `tags` | `uint64_t` | Simulation status bitmask flags (e.g., `Underground`, `Lootable`, `Campable`, `Forageable`). |
+| `exits` | `int[8]` | Exit directions mapping (North, South, East, West, Up, Down, In, Out) to other local room IDs ($-1$ if blocked). |
+
 ---
 
 ## 3. The Map Generation Pipeline
 
-The map is built in 8 sequential steps. Each step computes and populates fields within the [HexCell](file:///d:/world-sim/src/hextile_framework.h#L23) structure.
+The map is built in 9 sequential steps. Each step computes and populates fields within the [HexCell](file:///d:/world-sim/src/hextile_framework.h#L23) structure or spawns holding networks.
 
 ```mermaid
 graph TD
@@ -131,7 +157,8 @@ graph TD
     E -->|Generates river paths| F[6. Climate Simulation]
     F -->|Computes temp & moisture| G[7. Biome Assignment]
     G -->|Classifies biomes| H[8. Region Clustering]
-    H -->|Clusters & generates names| Finished[Ready for Render]
+    H -->|Clusters & generates names| I[9. Holdings Generation]
+    I -->|Spawns holdings & room graphs| Finished[Ready for Render]
 ```
 
 ### Step 1: Plate Tectonics (`step_generate_plates` in [map_gen_tectonics.cpp](file:///d:/world-sim/src/map_gen_tectonics.cpp#L7))
@@ -234,6 +261,15 @@ graph TD
   3. **Biomes**: Flood-fills contiguous cells sharing the same biome ID. Small components ($< 5$ cells) are categorized as `"micro_region"`, larger ones as `"biome_region"`.
   4. **Rivers**: Traces paths from river sources to mouths.
   5. Assigns unique procedural names using prefix/suffix lists in [NameGenerator](file:///d:/world-sim/src/name_generator.h).
+
+### Step 9: Holdings Generation (`step_generate_holdings` in [map_gen_holdings.cpp](file:///d:/world-sim/src/map_gen_holdings.cpp#L31))
+* **Objective**: Generate regional settlements, MUD room graphs, and game world details.
+* **Mechanism**:
+  1. Iterates through all land cells (elevations above `ocean_level`).
+  2. Spawns macroscopic settlements (currently focusing on `Wilderness` holdings) and names them using adjective/noun generators.
+  3. Populates holding parameters, mapping simulation tags such as `Campable`, `Explorable`, and `Forageable` to wilderness nodes.
+  4. Generates a network of microscopic room nodes (`SubArea`s) like trails, riverbanks/glades, cave entrances, and underground caverns.
+  5. Links room nodes using exit pathways to establish a navigable MUD graph and tags each room with simulation attributes (e.g. `Campable`, `Forageable`, `Underground`, `Lootable`).
 
 ---
 

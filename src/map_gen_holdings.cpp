@@ -249,8 +249,23 @@ void HexcrawlMapGenerator::build_mud_rooms_for_holding(Holding& holding, const H
         }
         holding.entry_sub_area_idx = 0;
 
+        std::vector<std::string> pool = get_filtered_templates_for_cell(cell);
         for (auto& room : holding.sub_areas) {
             room.tags |= Tags::Campable | Tags::Forageable;
+            
+            if (!pool.empty()) {
+                std::mt19937 room_rng(seed + cell.index * 17 + room.local_id * 31);
+                int count = (room_rng() % 2) + 1; // 1 or 2
+                std::vector<std::string> pool_copy = pool;
+                std::shuffle(pool_copy.begin(), pool_copy.end(), room_rng);
+                
+                int actual_count = std::min(count, (int)pool_copy.size());
+                for (int j = 0; j < actual_count; ++j) {
+                    ActiveObjectInstance inst;
+                    inst.template_id = pool_copy[j];
+                    room.interactables.push_back(inst);
+                }
+            }
         }
     }
 }
@@ -399,6 +414,61 @@ Dictionary HexcrawlMapGenerator::get_player_current_room_data() const {
     }
     data["exits"] = exits_dict;
 
+    Array interactables_arr;
+    for (const auto& obj : room.interactables) {
+        Dictionary obj_dict;
+        obj_dict["template_id"] = String(obj.template_id.c_str());
+        
+        const AdvancedInteractableTemplate* tmpl = object_manager.get_template(obj.template_id);
+        if (tmpl) {
+            obj_dict["name"] = String(tmpl->name.c_str());
+            
+            std::string dynamic_desc = tmpl->get_description(obj.runtime_tag_states);
+            obj_dict["description"] = String(dynamic_desc.c_str());
+            
+            std::vector<String> actions_list;
+            bool all_none = true;
+            for (const auto& pair : tmpl->features) {
+                const auto& feature = pair.second;
+                InteractionTag current_tag = feature.active_tag;
+                auto it = obj.runtime_tag_states.find(feature.keyword);
+                if (it != obj.runtime_tag_states.end()) {
+                    current_tag = it->second;
+                }
+                
+                if (current_tag != InteractionTag::None) {
+                    all_none = false;
+                    String action_name = "unknown";
+                    switch (current_tag) {
+                        case InteractionTag::Choppable: action_name = "chop"; break;
+                        case InteractionTag::Burnable: action_name = "burn"; break;
+                        case InteractionTag::Forageable: action_name = "forage"; break;
+                        case InteractionTag::Scrapeable: action_name = "scrape"; break;
+                        case InteractionTag::Clearable: action_name = "clear"; break;
+                        case InteractionTag::Searchable: action_name = "search"; break;
+                        default: break;
+                    }
+                    if (std::find(actions_list.begin(), actions_list.end(), action_name) == actions_list.end()) {
+                        actions_list.push_back(action_name);
+                    }
+                }
+            }
+            Array actions;
+            for (const auto& act : actions_list) {
+                actions.append(act);
+            }
+            obj_dict["is_depleted"] = all_none;
+            obj_dict["allowed_actions"] = actions;
+        } else {
+            obj_dict["name"] = String("Unknown");
+            obj_dict["description"] = String("");
+            obj_dict["is_depleted"] = true;
+            obj_dict["allowed_actions"] = Array();
+        }
+        interactables_arr.append(obj_dict);
+    }
+    data["interactables"] = interactables_arr;
+
     return data;
 }
 
@@ -409,4 +479,156 @@ bool HexcrawlMapGenerator::is_player_in_holding() const {
 void HexcrawlMapGenerator::exit_holding() {
     player_current_holding_id = -1;
     player_current_room_id = -1;
+}
+
+String HexcrawlMapGenerator::interact_in_room(const String& command) {
+    if (player_current_holding_id == -1 || player_current_room_id == -1) {
+        return "You are not inside a holding.";
+    }
+
+    auto it = global_holdings.find(player_current_holding_id);
+    if (it == global_holdings.end()) {
+        return "Error: holding not found.";
+    }
+
+    Holding& holding = it->second;
+    if (player_current_room_id < 0 || player_current_room_id >= (int)holding.sub_areas.size()) {
+        return "Error: room not found.";
+    }
+
+    SubArea& room = holding.sub_areas[player_current_room_id];
+    return execute_interaction_on_list(room.interactables, command);
+}
+
+String HexcrawlMapGenerator::interact_on_cell(int cell_idx, const String& command) {
+    if (cell_idx < 0 || cell_idx >= (int)cells.size()) {
+        return "Invalid cell selected.";
+    }
+    return execute_interaction_on_list(cells[cell_idx].interactables, command);
+}
+
+String HexcrawlMapGenerator::execute_interaction_on_list(std::vector<ActiveObjectInstance>& interactables, const String& command) {
+    // Parse the command
+    std::string cmd_str = command.utf8().get_data();
+    
+    // Lowercase
+    for (char& c : cmd_str) {
+        c = std::tolower(c);
+    }
+    
+    // Trim spaces
+    auto trim = [](std::string& s) {
+        s.erase(s.begin(), std::find_if(s.begin(), s.end(), [](unsigned char ch) {
+            return !std::isspace(ch);
+        }));
+        s.erase(std::find_if(s.rbegin(), s.rend(), [](unsigned char ch) {
+            return !std::isspace(ch);
+        }).base(), s.end());
+    };
+    trim(cmd_str);
+
+    if (cmd_str.empty()) {
+        return "You must enter a command.";
+    }
+
+    // Split " with " to get tool
+    std::string action_part = cmd_str;
+    std::string tool_part = "";
+    size_t with_pos = cmd_str.find(" with ");
+    if (with_pos != std::string::npos) {
+        action_part = cmd_str.substr(0, with_pos);
+        tool_part = cmd_str.substr(with_pos + 6);
+        trim(action_part);
+        trim(tool_part);
+    }
+
+    // Split action_part into verb and target
+    std::string verb = "";
+    std::string target = "";
+    size_t space_pos = action_part.find(' ');
+    if (space_pos != std::string::npos) {
+        verb = action_part.substr(0, space_pos);
+        target = action_part.substr(space_pos + 1);
+        trim(verb);
+        trim(target);
+    } else {
+        verb = action_part;
+    }
+
+    if (verb.empty()) {
+        return "You must specify a verb.";
+    }
+
+    // 1. Resolve input_verb to system InteractionTag via static verb-registry dictionary.
+    const auto& verb_mappings = CommandVerbRegistry::get_mappings();
+    auto verb_it = verb_mappings.find(verb);
+    if (verb_it == verb_mappings.end()) {
+        return "You don't know how to " + String(verb.c_str()) + " anything.";
+    }
+    InteractionTag resolved_input_verb_tag = verb_it->second;
+
+    if (target.empty()) {
+        return "What do you want to do that to?";
+    }
+
+    // 2. Fetch ActiveObjectInstance matching input_target from current room state.
+    ActiveObjectInstance* target_obj = nullptr;
+    const AdvancedInteractableTemplate* target_tmpl = nullptr;
+
+    for (auto& obj : interactables) {
+        const AdvancedInteractableTemplate* tmpl = object_manager.get_template(obj.template_id);
+        if (tmpl) {
+            if (tmpl->features.find(target) != tmpl->features.end()) {
+                target_obj = &obj;
+                target_tmpl = tmpl;
+                break;
+            }
+        }
+    }
+
+    if (!target_obj) {
+        return "You don't see that here.";
+    }
+
+    // 3. Query template.features using input_target.
+    auto feature_it = target_tmpl->features.find(target);
+    if (feature_it == target_tmpl->features.end()) {
+        return "There is no " + String(target.c_str()) + " to interact with on that object.";
+    }
+    const SubElementFeature& feature = feature_it->second;
+
+    // 4. Check runtime_tag_states for active tag overrides. Fall back to feature.active_tag if default.
+    InteractionTag current_active_tag = feature.active_tag;
+    auto override_it = target_obj->runtime_tag_states.find(target);
+    if (override_it != target_obj->runtime_tag_states.end()) {
+        current_active_tag = override_it->second;
+    }
+
+    // 5. Evaluate tag mismatch (includes None / depletion check)
+    if (current_active_tag != resolved_input_verb_tag) {
+        return String(feature.failure_msg.c_str());
+    }
+
+    // 6. Evaluate tool conditions
+    if (!feature.valid_tools.empty()) {
+        bool tool_matched = false;
+        for (const auto& req_tool : feature.valid_tools) {
+            std::string req_tool_lower = req_tool;
+            for (char& c : req_tool_lower) c = std::tolower(c);
+            if (tool_part == req_tool_lower) {
+                tool_matched = true;
+                break;
+            }
+        }
+        if (!tool_matched) {
+            return String(feature.no_tool_msg.c_str());
+        }
+    }
+
+    // 7. EXECUTE SUCCESS STATE:
+    // Mutate active instance state if required (e.g., set current_active_tag to None or Searchable)
+    target_obj->runtime_tag_states[target] = feature.success_mutation_tag;
+
+    // Print success message to client
+    return String(feature.success_msg.c_str());
 }

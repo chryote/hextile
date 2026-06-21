@@ -21,6 +21,7 @@ world-sim/
 │   ├── register_types.h/.cpp   # Entrypoint. Binds & registers class types with Godot Engine
 │   ├── hextile_framework.h     # Core structure definitions: HexCell, Plate, and Region
 │   ├── hexcrawl_map_generator.h/.cpp # Class definition, pipeline setup, properties, and API exports
+│   ├── interactable_system.h/.cpp # Biome-scoped templates, command verb registry, and managers
 │   ├── perlin_noise.h/.cpp     # Custom Octave-based Perlin Noise implementation
 │   ├── name_generator.h/.cpp   # Generates geographic labels for regions, mountains, and rivers
 │   ├── map_gen_tectonics.cpp   # Steps 1 & 2: Plate distribution and boundary collision uplift
@@ -105,6 +106,7 @@ The basic unit of the map grid.
 * **Geopolitical/Region IDs**: `landmass_id`, `biome_region_id`, `micro_region_id`, `mountain_range_id`, `river_id`.
 * **Overlays**: `String overlay` (e.g. `"none"`, `"ruins"`, `"castle"`).
 * **Holdings**: `holding_ids[5]` (global holding IDs), `holding_count` (number of local holdings).
+* **Interactables**: `std::vector<ActiveObjectInstance> interactables` (list of active objects on this hex cell).
 
 ### D. `SubArea`
 A granular, text-RPG room within a holding.
@@ -113,6 +115,7 @@ A granular, text-RPG room within a holding.
 * `std::string description`: Text-RPG description string.
 * `uint64_t tags`: Bitmask simulation flags (e.g. `Raidable`, `Burnable`, `Lootable`, `Underground`, `Campable`, `Explorable`, `Forageable`).
 * `int exits[8]`: Direction links to other `local_id`s.
+* `std::vector<ActiveObjectInstance> interactables`: List of active interactable objects in this room.
 
 ### E. `Holding`
 A microscopic anchor on a hex cell representing a settlement or site.
@@ -122,6 +125,24 @@ A microscopic anchor on a hex cell representing a settlement or site.
 * `std::string name`: Settlement name.
 * `uint64_t tags`: Bitmask simulation flags (e.g. `Campable`, `Explorable`, `Forageable`).
 * `std::vector<SubArea> sub_areas`: Room graph.
+
+### F. `ActiveObjectInstance` & Interactables (`src/interactable_system.h`)
+Lightweight data-driven structures representing interactable objects in MUD rooms.
+* **`ActiveObjectInstance`**: Lightweight active state token.
+  * `std::string template_id`: Reference pointing back to the static template registry.
+  * `std::unordered_map<std::string, InteractionTag> runtime_tag_states`: Maps feature keywords to current overridden tags for tracking state mutations.
+* **`AdvancedInteractableTemplate`**: Static database entry.
+  * `std::string id`: Unique snake_case string ID (e.g., `"briar_patch"`).
+  * `std::string name`: Player-facing display name.
+  * `std::string main_description`: Base sensory description text.
+  * `std::unordered_map<std::string, SubElementFeature> features`: Map of sensory keyword strings to their interactable rules.
+* **`SubElementFeature`**: Structural interaction rules.
+  * `std::string keyword`: The target keyword of the feature.
+  * `InteractionTag active_tag`: The current allowed tag/action.
+  * `std::vector<std::string> valid_tools`: List of tools required (empty = bare hands allowed).
+  * `std::string success_msg`, `failure_msg`, `no_tool_msg`: Custom feedback strings.
+  * `InteractionTag success_mutation_tag`: New tag status set upon success.
+  * `std::string desc_substring_to_replace`, `mutated_desc_substring`: Custom replacement strings to dynamically alter the parent description.
 
 ---
 
@@ -141,6 +162,9 @@ The C++ generator exposes properties and methods to Godot's `ClassDB`, making th
 * `enter_holding(holding_id)` / `exit_holding()`: Sets or clears active player session.
 * `move_player_dir(dir_val)`: Moves player through room exits.
 * `get_player_current_room_data()`: Returns details of the player's current location.
+* `interact_in_room(command)`: Parses player text inputs (verb, target, tool) and executes interactions in the active room.
+* `interact_on_cell(cell_idx, command)`: Parses player text inputs (verb, target, tool) and executes interactions on the selected cell.
+* `is_player_in_holding()` / `exit_holding()`: Query or leave session.
 
 ### Bulk Data Getters (Optimized for Rendering)
 Instead of querying cells one-by-one, GDScript queries data in bulk:
